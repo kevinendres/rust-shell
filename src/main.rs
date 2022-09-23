@@ -2,6 +2,8 @@ use std::io::{self, Write};
 use std::ffi::CString;
 use std::ffi::CStr;
 use nix::unistd::ForkResult;
+use std::path::PathBuf;
+use std::str::FromStr;
 
 fn main() {
     loop {
@@ -24,7 +26,17 @@ fn main() {
             .split_whitespace()
             .map(|s| CString::new(s).expect("Error CString"))
             .collect();
-        let path = &input[0];
+        let filename = CString::new(PathBuf::from_str(&input[0]
+                                                      .clone()
+                                                      .into_string()
+                                         .expect("Error CString filename")
+                                         .as_str())
+                                        .expect("Error pathbuf")
+                                        .file_name()
+                                    .expect("Error Filename")
+                                    .to_str()
+                                    .expect("OsStr to Str"))
+                                    .expect("CString to filename");
         let args = if input.len() > 1 {
                         &input[..]
                     }
@@ -37,7 +49,7 @@ fn main() {
 
         match fork_res {
             ForkResult::Child => {
-                let _execve_result = nix::unistd::execve(path, args, &[] as &[&CStr]);
+                let _execve_result = nix::unistd::execvp(&filename, args);
             },
             ForkResult::Parent {
                 child: c } => {
