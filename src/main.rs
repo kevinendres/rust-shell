@@ -1,18 +1,24 @@
+mod builtins;
+mod command;
+
 use std::io::{self, Write};
 use std::ffi::CString;
-use std::ffi::CStr;
 use nix::unistd::ForkResult;
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 use std::str::FromStr;
 
 fn main() {
     loop {
         let current_path = std::env::current_dir().expect("Error current_dir");
-        let prefix = current_path.as_path().parent().expect("Error parent dir");
-        let _current_dir = current_path.as_path().strip_prefix(prefix).expect("error strip prefix");
+        let parent_dir = if current_path != PathBuf::from("/") {
+            current_path.as_path().parent().expect("Error parent dir")
+        }
+        else {
+            &current_path
+        };
+        let current_dir = current_path.as_path().strip_prefix(parent_dir).expect("error strip prefix");
 
-        //print!("{}: $ ", current_dir.display());
-        print!("$ ");
+        print!("{}: $ ", current_dir.display());
         io::stdout().flush().expect("Error flush");
 
         let mut buffer = String::new();
@@ -22,23 +28,40 @@ fn main() {
             Ok(_) => {}         //bytes read successfully
         }
 
-        let input: Vec<CString> = buffer
-            .split_whitespace()
-            .map(|s| CString::new(s).expect("Error CString"))
-            .collect();
-        let filename = CString::new(PathBuf::from_str(&input[0]
-                                                      .clone()
-                                                      .into_string()
-                                         .expect("Error CString filename")
-                                         .as_str())
+        let mut input: Vec<&str> = buffer.split_whitespace().collect();
+        let filename = match input[0] {
+            "cd" => {
+                // input[0] = "chdir";
+                // input[1] = match input[1] {
+                //     ".." => parent_dir.to_str().expect("Error parent_dir to str"),
+                //     unchanged => unchanged,
+                // };
+                // println!("{:?}", input);
+                // CString::new("chdir").expect("Error cd to CString")
+                builtins::cd::cd(&input);
+                continue;
+                
+            },
+
+            "/bin/pwd" => {
+                builtins::pwd::pwd();
+                continue;
+            }
+
+            bin => CString::new(PathBuf::from_str(bin)
                                         .expect("Error pathbuf")
                                         .file_name()
-                                    .expect("Error Filename")
-                                    .to_str()
-                                    .expect("OsStr to Str"))
-                                    .expect("CString to filename");
+                                        .expect("Error Filename")
+                                        .to_str()
+                                        .expect("OsStr to Str"))
+                                        .expect("CString to filename"),
+        };
+        let cstring_input = input
+                            .iter()
+                            .map(|s| CString::new((s).as_bytes()).expect("Error CString"))
+                            .collect::<Vec<CString>>();
         let args = if input.len() > 1 {
-                        &input[..]
+                        cstring_input.as_slice()
                     }
                     else {
                         &[] as &[CString]
