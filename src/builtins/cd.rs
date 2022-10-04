@@ -1,7 +1,7 @@
 use std::env;
 
-pub fn cd(args: &[&str]) {
-    let p = std::path::Path::new(args[1]);
+pub fn cd(args: &Vec<String>) {
+    let p = std::path::Path::new(&args[1]);
     env::set_current_dir(p).expect("CD failed");
 
     //MacOs uses symlinks for /var, /tmp, and /etc
