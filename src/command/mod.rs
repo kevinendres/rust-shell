@@ -8,12 +8,12 @@ use std::str::FromStr;
 use shell_words::{ParseError};
 
 #[derive(Default, Debug)]
-pub struct CommandList(Vec<Command>);
+pub struct CommandList(pub Vec<Command>);
 
-#[derive(Debug)]
-pub enum Terminator {
-    LogAnd,
-    LogOr,
+#[derive(Debug, PartialEq, Eq)]
+pub enum Conjunction {
+    And,
+    Or,
     Pipe,
     SemiCol,
     RedirOut,
@@ -22,9 +22,9 @@ pub enum Terminator {
 
 #[derive(Debug)]
 pub struct Command {
-    args: Vec<String>,
+    pub args: Vec<String>,
     bang: bool,
-    term: Option<Terminator>,
+    pub conj: Option<Conjunction>,
 }
 
 pub fn parse(input: &String) -> CommandList {
@@ -39,42 +39,42 @@ pub fn parse(input: &String) -> CommandList {
         match token {
             _ if token == "!"  => command.bang = true,
             _ if token == "&&" => {
-                command.term = Some(Terminator::LogAnd);
                 com_list.add(command);
                 command = Command::new();
+                command.conj = Some(Conjunction::And);
             },
             _ if token == "||" => {
-                command.term = Some(Terminator::LogOr);
                 com_list.add(command);
                 command = Command::new();
+                command.conj = Some(Conjunction::Or);
             },
             _ if token == ";"  => {
-                command.term = Some(Terminator::SemiCol);
                 com_list.add(command);
                 command = Command::new();
+                command.conj = Some(Conjunction::SemiCol);
             },
             _ if token == "|"  => {
-                command.term = Some(Terminator::Pipe);
                 com_list.add(command);
                 command = Command::new();
+                command.conj = Some(Conjunction::Pipe);
             },
             _ if token == "<"  => {
-                command.term = Some(Terminator::RedirIn);
                 com_list.add(command);
                 command = Command::new();
+                command.conj = Some(Conjunction::RedirIn);
             },
             _ if token == ">"  => {
-                command.term = Some(Terminator::RedirOut);
                 com_list.add(command);
                 command = Command::new();
+                command.conj = Some(Conjunction::RedirOut);
             },
             mut s                  => {
                 if s.ends_with(';') {
-                    command.term = Some(Terminator::SemiCol);
                     s.pop();
                     command.args.push(s);
                     com_list.add(command);
                     command = Command::new();
+                    command.conj = Some(Conjunction::SemiCol);
                 }
                 else {
                     command.args.push(s);
@@ -90,7 +90,7 @@ pub fn parse(input: &String) -> CommandList {
 
 impl Command {
     pub fn new() -> Self {
-        Command{ args: Vec::new(), bang: false, term: None }
+        Command{ args: Vec::new(), bang: false, conj: None }
     }
 
     pub fn execute(&self) -> i32 {
@@ -103,6 +103,11 @@ impl Command {
                 builtins::pwd::pwd();
                 return 0;
             },
+            "exec" => {
+                builtins::exec::exec(self);
+                println!("exec fail");
+                return 0;
+            }
             _ => {},
         };
         let fork_res;
@@ -125,7 +130,7 @@ impl Command {
         result
     }
 
-    fn convert_to_c_string(&self) -> (CString, Vec<CString>) {
+    pub fn convert_to_c_string(&self) -> (CString, Vec<CString>) {
         let bin = CString::new(self.args[0].as_bytes()).expect("CString failed bin");
         let mut args = Vec::new();
         for arg in &self.args {
@@ -140,13 +145,13 @@ impl CommandList {
         CommandList(Vec::new())
     }
 
-    pub fn execute(&self) -> i32 {
-        let mut status = 0;
-        for command in &self.0 {
-            status = command.execute();
-        }
-        status
-    }
+    // pub fn execute(&self) -> i32 {
+    //     let mut status = 0;
+    //     for command in &self.0 {
+    //         status = command.execute();
+    //     }
+    //     status
+    // }
 
     pub fn add(&mut self, command: Command) {
         self.0.push(command);

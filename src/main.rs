@@ -1,15 +1,15 @@
 mod command;
 mod builtins;
 mod prompt;
+mod execute;
 
 fn main() {
-    let mut status = 0;
-    loop {
+    let mut executor = execute::Executor::new();
 
-        prompt::print_prompt(status);
+    loop {
+        prompt::print_prompt(executor.last_status);
         let args = prompt::read_from_stdin();
         let commands = command::parse(&args);
-        status = commands.execute();
-
+        executor.execute(commands);
     }
 }
