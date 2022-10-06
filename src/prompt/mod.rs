@@ -12,6 +12,11 @@ pub fn print_prompt(code: i32) {
     std::io::stdout().flush().expect("Error flush");
 }
 
+pub fn print_cont_prompt() {
+    print!("> ");
+    std::io::stdout().flush().expect("Error flush");
+}
+
 pub fn read_from_stdin() -> String {
     let mut input = String::new();
     match io::stdin().read_line(&mut input) {

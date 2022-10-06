@@ -1,4 +1,5 @@
 use crate::builtins;
+use crate::prompt;
 
 use std::io;
 use std::ffi::{CString, CStr};
@@ -35,45 +36,63 @@ pub fn parse(input: &String) -> CommandList {
 
     let mut com_list = CommandList::new();
     let mut command = Command::new();
+
+    parse_tokens(tokens, &mut command, &mut com_list);
+
+    if !command.is_empty() {
+        com_list.add(command);
+    }
+    com_list
+}
+
+fn parse_tokens(tokens: Vec<String>, command: &mut Command, com_list: &mut CommandList) {
     for token in tokens {
         match token {
             _ if token == "!"  => command.bang = true,
             _ if token == "&&" => {
-                com_list.add(command);
-                command = Command::new();
+                com_list.add(std::mem::replace(command, Command::new()));
                 command.conj = Some(Conjunction::And);
             },
             _ if token == "||" => {
-                com_list.add(command);
-                command = Command::new();
+                com_list.add(std::mem::replace(command, Command::new()));
                 command.conj = Some(Conjunction::Or);
             },
             _ if token == ";"  => {
-                com_list.add(command);
-                command = Command::new();
+                com_list.add(std::mem::replace(command, Command::new()));
                 command.conj = Some(Conjunction::SemiCol);
             },
             _ if token == "|"  => {
-                com_list.add(command);
-                command = Command::new();
+                com_list.add(std::mem::replace(command, Command::new()));
                 command.conj = Some(Conjunction::Pipe);
             },
             _ if token == "<"  => {
-                com_list.add(command);
-                command = Command::new();
+                com_list.add(std::mem::replace(command, Command::new()));
                 command.conj = Some(Conjunction::RedirIn);
             },
             _ if token == ">"  => {
-                com_list.add(command);
-                command = Command::new();
+                com_list.add(std::mem::replace(command, Command::new()));
                 command.conj = Some(Conjunction::RedirOut);
+            },
+            _ if token == "\\" => {
+                prompt::print_cont_prompt();
+                let new_input = prompt::read_from_stdin();
+                if command.is_empty() {
+                    let new_com_list = parse(&new_input);
+                    com_list.append(new_com_list);
+                }
+                else {
+                    let new_tokens: Vec<String> = match shell_words::split(&new_input) {
+                        Err(err)   => { eprintln!("{}", err); Vec::new() },
+                        Ok(tokens) => { tokens },
+                    };
+                    parse_tokens(new_tokens, command, com_list);
+                };
             },
             mut s                  => {
                 if s.ends_with(';') {
                     s.pop();
                     command.args.push(s);
-                    com_list.add(command);
-                    command = Command::new();
+                    com_list.add(std::mem::replace(command, Command::new()));
                     command.conj = Some(Conjunction::SemiCol);
                 }
                 else {
@@ -82,10 +101,6 @@ pub fn parse(input: &String) -> CommandList {
             },
         }
     }
-    if !command.args.is_empty() {
-        com_list.add(command);
-    }
-    com_list
 }
 
 impl Command {
@@ -93,20 +108,24 @@ impl Command {
         Command{ args: Vec::new(), bang: false, conj: None }
     }
 
+    pub fn is_empty(&self) -> bool {
+        return self.args.is_empty()
+    }
+
     pub fn execute(&self) -> i32 {
         match self.args[0].as_str() {
             "cd" => {
                 builtins::cd::cd(&self.args);
-                return 0;
+                return self.exit(0);
             },
             "pwd" | "/bin/pwd" => {
                 builtins::pwd::pwd();
-                return 0;
+                return self.exit(0);
             },
             "exec" => {
                 builtins::exec::exec(self);
                 println!("exec fail");
-                return 0;
+                return self.exit(0);
             }
             _ => {},
         };
@@ -122,8 +141,8 @@ impl Command {
             ForkResult::Parent {
                 child: c } => {
                 match nix::sys::wait::waitpid(c, None).ok() {
-                    Some(nix::sys::wait::WaitStatus::Exited(pid, code)) => code,
-                                                                        _ => 1,
+                    Some(nix::sys::wait::WaitStatus::Exited(pid, code))   => self.exit(code),
+                                                                        _ => self.exit(1),
                 }
             },
         };
@@ -137,6 +156,18 @@ impl Command {
             args.push(CString::new(arg.as_bytes()).expect("CString failed args"));
         }
         (bin, args)
+    }
+
+    pub fn exit(&self, code: i32) -> i32 {
+        if self.bang {
+            match code {
+                0 => 1,
+                _ => 0,
+            }
+        }
+        else {
+            code
+        }
     }
 }
 
@@ -156,5 +187,8 @@ impl CommandList {
     pub fn add(&mut self, command: Command) {
         self.0.push(command);
     }
-}
 
+    pub fn append(&mut self, com_list: CommandList) {
+        self.0.extend(com_list.0.into_iter());
+    }
+}
