@@ -28,10 +28,10 @@ pub struct Command {
     pub conj: Option<Conjunction>,
 }
 
-pub fn parse(input: &String) -> CommandList {
-    let tokens: Vec<String> = match shell_words::split(&input) {
-        Err(err)   => { eprintln!("{}", err); Vec::new() },
-        Ok(tokens) => { tokens },
+pub fn parse(input: &str) -> CommandList {
+    let tokens: Vec<String> = match shlex::split(input) {
+        None   => { eprintln!("No input parsed"); Vec::new() },
+        Some(tokens) => tokens,
     };
 
     let mut com_list = CommandList::new();
@@ -41,6 +41,9 @@ pub fn parse(input: &String) -> CommandList {
 
     if !command.is_empty() {
         com_list.add(command);
+    }
+    else {
+        cont_parse_new_line(&mut command, &mut com_list);
     }
     com_list
 }
@@ -73,21 +76,8 @@ fn parse_tokens(tokens: Vec<String>, command: &mut Command, com_list: &mut Comma
                 com_list.add(std::mem::replace(command, Command::new()));
                 command.conj = Some(Conjunction::RedirOut);
             },
-            _ if token == "\\" => {
-                prompt::print_cont_prompt();
-                let new_input = prompt::read_from_stdin();
-                if command.is_empty() {
-                    let new_com_list = parse(&new_input);
-                    com_list.append(new_com_list);
-                }
-                else {
-                    let new_tokens: Vec<String> = match shell_words::split(&new_input) {
-                        Err(err)   => { eprintln!("{}", err); Vec::new() },
-                        Ok(tokens) => { tokens },
-                    };
-                    parse_tokens(new_tokens, command, com_list);
-                };
-            },
+            // a lone backslash parses as an empty slice
+            _ if token.is_empty() => { cont_parse_new_line(command, com_list); },
             mut s                  => {
                 if s.ends_with(';') {
                     s.pop();
@@ -103,13 +93,29 @@ fn parse_tokens(tokens: Vec<String>, command: &mut Command, com_list: &mut Comma
     }
 }
 
+fn cont_parse_new_line(command: &mut Command, com_list: &mut CommandList) {
+    prompt::print_cont_prompt();
+    let new_input = prompt::read_from_stdin();
+    if command.is_empty() {
+        let new_com_list = parse(&new_input);
+        com_list.append(new_com_list);
+    }
+    else {
+        let new_tokens: Vec<String> = match shlex::split(&new_input) {
+            None   => { eprintln!("Error no input to lex"); Vec::new() },
+            Some(tokens) => tokens,
+        };
+        parse_tokens(new_tokens, command, com_list);
+    };
+}
+
 impl Command {
     pub fn new() -> Self {
         Command{ args: Vec::new(), bang: false, conj: None }
     }
 
     pub fn is_empty(&self) -> bool {
-        return self.args.is_empty()
+        self.args.is_empty()
     }
 
     pub fn execute(&self) -> i32 {
