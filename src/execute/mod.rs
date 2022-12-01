@@ -1,41 +1,49 @@
-use crate::command::{Command, CommandList, Conjunction};
+use crate::command::{TopLevelCommandList};
+use std::process::{self, ExitStatus};
+use std::os::unix::process::ExitStatusExt;
+use anyhow::{Result};
+use std::fmt;
 
-#[derive(Default)]
-pub struct Executor {
-    pub history: Vec<Command>,
-    pub last_status: i32,
+pub trait Execute {
+    fn execute(&mut self) -> Result<ExitStatus>;
+    fn execute_to_string(&mut self) -> Result<String>;
 }
 
-impl Executor {
-    pub fn new() -> Self {
-        Executor { history: Vec::new(), last_status: 0 }
-    }
+pub trait Pipe: Execute {
+    fn get_child(&mut self) -> std::process::Child;
+    fn pipe_in(&mut self, in_pipe: process::ChildStdout);
+    fn pipe_out(&mut self);
+}
 
-    pub fn execute(&mut self, commands: CommandList) -> i32 {
-        for command in &commands.0 {
-            match command.conj {
-                None                       => self.last_status = command.execute(),
-                Some(Conjunction::SemiCol) => self.last_status = command.execute(),
-                Some(Conjunction::And)     => {
-                    if self.last_status == 0 {
-                        self.last_status = command.execute();
-                    }
-                    else {
-                        break;
-                    }
-                },
-                Some(Conjunction::Or)      => {
-                    //println!("{:?}", command);
-                    if self.last_status == 0 {
-                        break;
-                    }
-                    else {
-                        self.last_status = command.execute();
-                    }
-                }
-                Some(_)                    => self.last_status = command.execute(),
+#[derive(Debug, Clone)]
+pub struct UnrecognizedCommandError {
+    pub message: String
+}
+
+impl std::error::Error for UnrecognizedCommandError { }
+
+impl fmt::Display for UnrecognizedCommandError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{}, at ({}:{})", self.message, line!(), column!())
+    }
+}
+
+#[derive(Debug)]
+pub struct Executor {
+    pub history: Vec<TopLevelCommandList>,
+    pub last_status: ExitStatus,
+}
+
+pub fn execute(mut commands: Vec<Box<dyn Execute>>) -> ExitStatus {
+    let mut status = ExitStatus::from_raw(0);
+    for command in &mut commands {
+        status = match command.execute() {
+            Ok(status) => status,
+            Err(msg)   => {
+                eprintln!("Execution error: {}", msg);
+                ExitStatus::from_raw(1)
             }
         }
-        self.last_status
     }
+    status
 }

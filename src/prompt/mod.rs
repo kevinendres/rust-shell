@@ -1,28 +1,64 @@
 use std::env;
+use std::path::PathBuf;
+use std::process::ExitStatus;
 use std::io::{self, Write};
 
-pub fn print_prompt(code: i32) {
-    let path = env::current_dir().expect("Error! evn::current_dir failed");
-    let current_dir = path.file_name().unwrap_or_else(|| std::ffi::OsStr::new("/")).to_str();
+pub fn print_prompt(exit_status: &ExitStatus) {
+    let path = match env::current_dir() {
+        Ok(path) => path,
+        Err(e)   => {
+            eprintln!("Error! env::current_dir failed: {}", e);
+            PathBuf::from("/")
+        }
 
-    match code {
-        0 => print!("\x1b[92m{}: ?\x1b[0m ", current_dir.unwrap_or(">>>")),
-        _ => print!("\x1b[91m{}: ?\x1b[0m ", current_dir.unwrap_or(">>>")),
+    };
+    let current_dir = path
+        .file_name()
+        .unwrap_or_else(|| std::ffi::OsStr::new("/"))
+        .to_str();
+
+    if exit_status.success() {
+        print!("\x1b[92;1m{}: ?\x1b[0m ", current_dir.unwrap_or(">>>"));
     }
-    std::io::stdout().flush().expect("Error flush");
+    else {
+        print!("\x1b[91;1m{}: ?\x1b[0m ", current_dir.unwrap_or(">>>"));
+    }
+    match std::io::stdout().flush() {
+        Ok(_)  => {},
+        Err(e) => eprintln!("Couldn't flush stdout: {}", e),
+    }
 }
 
 pub fn print_cont_prompt() {
     print!("> ");
-    std::io::stdout().flush().expect("Error flush");
+    match std::io::stdout().flush() {
+        Ok(_)  => {},
+        Err(e) => eprintln!("Couldn't flush stdout: {}", e),
+    }
 }
 
 pub fn read_from_stdin() -> String {
     let mut input = String::new();
-    match io::stdin().read_line(&mut input) {
-        Err(err) => eprintln!("{}", err),
-        Ok(0) => std::process::exit(0),     //EOF, end shell
-        Ok(_) => {}         //bytes read successfully
+    loop {
+        match io::stdin().read_line(&mut input) {
+            Err(err) => eprintln!("Prompt error: {}", err),
+            Ok(0) => std::process::exit(0),     //EOF, end shell
+            Ok(_) => {},                        //bytes read successfully
+        }
+        if input.ends_with("&&\n") || input.ends_with("||\n")
+            || input.ends_with("|\n") || input.ends_with(">\n")
+            || input.ends_with(">>\n") || input.ends_with("<\n") {
+            input.pop();   //remove newline char to concat input across lines
+            print_cont_prompt();
+        }
+        else if input.ends_with("\\\n") {
+            print_cont_prompt();
+            input.pop();   //remove newline char to concat input across lines
+            input.pop();   //don't escape first char of next line
+        }
+        else {
+            break;
+        }
     }
     input
 }
